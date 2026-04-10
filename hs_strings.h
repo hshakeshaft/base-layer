@@ -208,6 +208,16 @@ extern hss_IAllocator hss_default_allocator;
                                     API Begins
 ==============================================================================*/
 
+/* @doc the maximum length a string can be in this API */
+#define HSS__STRING_MAX_LEN 2147483647
+
+/* @doc returns the length of a string, returns -1 of there was an error
+
+@note returns -1 when str is NULL
+@note returns -1 when str exceeds [HSS__STRING_MAX_LEN], i.e. i32::max (2,147,483,647)
+
+@param{str} pointer to a string to take the length of
+*/
 HSS_DEF int hss_string_len(const char *str);
 
 
@@ -281,37 +291,27 @@ hss_IAllocator hss_default_allocator = {
     typedef ssize_t hss_isize;
 #endif
 
-#define HSS__STRING_MAX_LEN 2147483647
 
 HSS_DEF int hss_string_len(const char *str)
 {
-    typedef union {
-        struct {
-            int lower_part;
-            int highter_part;
-        } s;
-        hss_isize quad_part;
-    } len_t;
-
     int result;
-    len_t len;
+    hss_isize len;
 
     result = -1;
-    len.quad_part = 0;
+    len = 0;
 
     if (!str) { return result; }
 
-    while (str[len.quad_part++])
+    while (str[len++])
     {
-        if (len.quad_part > HSS__STRING_MAX_LEN)
+        if (len > HSS__STRING_MAX_LEN)
         {
             return result;
         }
     }
 
-    len.quad_part -= 1;
-
-    result = len.s.lower_part;
+    len -= 1;
+    result = (int) len;
 
     return result;
 }
