@@ -85,6 +85,16 @@ int main(void) {
 ```
 
 Changelog:
+    - 0.2   add hss_String_View type (a mutable, non owning view of a string)
+            add functions for manipulating & mutating string views
+                hss_string_view_chop_left
+                hss_string_view_chop_right
+                hss_string_view_chop_left_n
+                hss_string_view_chop_right_n
+                hss_string_view_trim_left
+                hss_string_view_trimg_right
+                hss_string_view_trim
+
     - 0.1   add hss_String type
             add hss_string_len function
             add hss_string_create & hss_string_destroy functions
@@ -252,6 +262,24 @@ typedef struct hss_String_Header
 } hss_String_Header;
 
 
+/* @doc a mutable, non owning string type
+
+@member{ptr} pointer to the string to take a view of
+@member{len} the length of the view to look at
+*/
+typedef struct hss_String_View
+{
+    char *ptr;
+    int len;
+} hss_String_View;
+
+/* @doc (s)printf format specifier string */
+#define HSS_STRING_VIEW_FMT "%.*s"
+
+/* @doc unpacks a [hss_String_View] for (s)printf format string */
+#define HSS_STRING_VIEW_ARG(SV) (SV).len, (SV).ptr
+
+
 /* @doc create a string, allocating space for it on the heap via user supplied
 allocator
 
@@ -280,7 +308,6 @@ HSS_DEF int hss_string_destroy(hss_String *str);
 */
 HSS_DEF int hss_string_len(hss_String str);
 
-
 /* @doc copy a c string into destination
 
 @note failure cases include:
@@ -293,6 +320,53 @@ HSS_DEF int hss_string_len(hss_String str);
 @return amount of chars copied from src on success, -1 on failure
 */
 HSS_DEF int hss_string_copy(char *src, hss_String dest);
+
+/* @doc create a string view from a string
+
+@note C string compatible
+*/
+HSS_DEF hss_String_View hss_string_view(hss_String str);
+
+/* @doc "chops" the view such that 1 char is remove from the left of the view */
+HSS_DEF void hss_string_view_chop_left(hss_String_View *sv);
+
+/* @doc "chops" the view such that 1 char is remove from the right of the view */
+HSS_DEF void hss_string_view_chop_rigt(hss_String_View *sv);
+
+/* @doc "chops" the view such that up to n characters, or sv->len (whichever is less)
+are removed from the left of the string view.
+*/
+HSS_DEF void hss_string_view_chop_left_n(hss_String_View *sv, int n);
+
+/* @doc "chops" the view such that up to n characters, or sv->len (whichever is less)
+are removed from the right of the string view.
+*/
+HSS_DEF void hss_string_view_chop_rigt_n(hss_String_View *sv, int n);
+
+/* @doc trims all whitespace from the left side of a string view */
+HSS_DEF void hss_string_view_trim_left(hss_String_View *sv);
+
+/* @doc trims all whitespace from the right side of a string view */
+HSS_DEF void hss_string_view_trim_right(hss_String_View *sv);
+
+/* @doc trims all whitespace from a string view */
+HSS_DEF void hss_string_view_trim(hss_String_View *sv);
+
+/* @doc splits a view into 2 separate views, returning the left hand side of the
+view, consuming the delimiter
+
+e.g.
+char *str = "Hello World!";
+hss_String_View rest = {...};
+hss_String_View first = hss_string_view_chop_by_delim(&rest, ' ');
+
+       first     rest
+        |         |
+String: [Hello][ ][World!]
+                ^
+                delim
+*/
+HSS_DEF hss_String_View hss_string_view_chop_by_delim(hss_String_View *sv, char delim);
 
 
 /*==============================================================================
@@ -310,7 +384,7 @@ HSS_DEF int hss_string_copy(char *src, hss_String dest);
 #endif
 
 #define HS_STRINGS_API_VERSION_MAJOR "0"
-#define HS_STRINGS_API_VERSION_MINOR "1"
+#define HS_STRINGS_API_VERSION_MINOR "2"
 #define HS_STRINGS_API_VERSION_PATCH "\0"
 
 HSS_DEF const char *hss_api_version(void)
@@ -490,6 +564,102 @@ HSS_DEF int hss_string_copy(char *src, hss_String dest)
 
     return bytes_copied;
 }
+
+HSS_DEF hss_String_View hss_string_view(hss_String str)
+{
+    hss_String_View sv;
+    sv.ptr = (char*) str;
+    sv.len = hss_string_len(str);
+    return sv;
+}
+
+HSS_DEF void hss_string_view_chop_left(hss_String_View *sv)
+{
+    if (sv->len > 0)
+    {
+        sv->ptr++;
+        sv->len--;
+    }
+}
+
+HSS_DEF void hss_string_view_chop_right(hss_String_View *sv)
+{
+    if (sv->len > 0)
+    {
+        sv->len-=1;
+    }
+}
+
+HSS_DEF void hss_string_view_chop_left_n(hss_String_View *sv, int n)
+{
+    int i;
+    n = n <= sv->len ? n : sv->len;
+    for (i = 0; i < n; ++i) { hss_string_view_chop_left(sv); }
+}
+
+HSS_DEF void hss_string_view_chop_rigt_n(hss_String_View *sv, int n)
+{
+    int i;
+    n = n <= sv->len ? n : sv->len;
+    for (i = 0; i < n; ++i) { hss_string_view_chop_right(sv); }
+}
+
+
+static int hss__is_space(char c)
+{
+    int res;
+    res = (c == ' ') || (c == '\t') || (c == '\n') || (c == '\r');
+    return res;
+}
+
+HSS_DEF void hss_string_view_trim_left(hss_String_View *sv)
+{
+    while (hss__is_space(*sv->ptr) && sv->len > 0)
+    {
+        hss_string_view_chop_left(sv);
+    }
+}
+
+HSS_DEF void hss_string_view_trim_right(hss_String_View *sv)
+{
+    while (hss__is_space(sv->ptr[sv->len - 1]) && sv->len > 0)
+    {
+        hss_string_view_chop_right(sv);
+    }
+}
+
+HSS_DEF void hss_string_view_trim(hss_String_View *sv)
+{
+    hss_string_view_trim_left(sv);
+    hss_string_view_trim_right(sv);
+}
+
+HSS_DEF hss_String_View hss_string_view_chop_by_delim(hss_String_View *sv, char delim)
+{
+    hss_String_View first;
+    int i;
+
+    i = 0;
+    while (i < sv->len && sv->ptr[i] != delim)
+    {
+        i += 1;
+    }
+
+    if (i < sv->len)
+    {
+        first.ptr = sv->ptr;
+        first.len = i;
+        hss_string_view_chop_left_n(sv, i + 1);
+    }
+    else
+    {
+        first = *sv;
+        hss_string_view_chop_left_n(sv, sv->len);
+    }
+
+    return first;
+}
+
 
 #endif  /* HS_STRINGS_IMPLEMENTATION */
 
