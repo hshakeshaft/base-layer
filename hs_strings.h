@@ -280,6 +280,9 @@ typedef struct hss_String_View
 #define HSS_STRING_VIEW_ARG(SV) (SV).len, (SV).ptr
 
 
+HSS_DEF int hss_is_ascii_whitepsace(char c);
+
+
 /* @doc create a string, allocating space for it on the heap via user supplied
 allocator
 
@@ -436,6 +439,14 @@ hss_IAllocator hss_default_allocator = {
     hss__iallocator_libc_free,
     NULL
 };
+
+
+HSS_DEF int hss_is_ascii_whitepsace(char c)
+{
+    int result;
+    result = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    return result;
+}
 
 
 /* ===== Strings ===== */
@@ -605,16 +616,9 @@ HSS_DEF void hss_string_view_chop_rigt_n(hss_String_View *sv, int n)
 }
 
 
-static int hss__is_space(char c)
-{
-    int res;
-    res = (c == ' ') || (c == '\t') || (c == '\n') || (c == '\r');
-    return res;
-}
-
 HSS_DEF void hss_string_view_trim_left(hss_String_View *sv)
 {
-    while (hss__is_space(*sv->ptr) && sv->len > 0)
+    while (hss_is_ascii_whitepsace(*sv->ptr) && sv->len > 0)
     {
         hss_string_view_chop_left(sv);
     }
@@ -622,7 +626,7 @@ HSS_DEF void hss_string_view_trim_left(hss_String_View *sv)
 
 HSS_DEF void hss_string_view_trim_right(hss_String_View *sv)
 {
-    while (hss__is_space(sv->ptr[sv->len - 1]) && sv->len > 0)
+    while (hss_is_ascii_whitepsace(sv->ptr[sv->len - 1]) && sv->len > 0)
     {
         hss_string_view_chop_right(sv);
     }
