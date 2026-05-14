@@ -12,3 +12,6 @@ fi
 # examples
 cc $CFLAGS -o $BUILD_DIR/hs_strings examples/hs_strings.c
 ./$BUILD_DIR/hs_strings
+
+cc $CFLAGS -DHS_LOGGING_EXAMPLE__INCLUDE_DEFAULT_LOGGERS -o $BUILD_DIR/hs_logging examples/hs_logging.c
+./$BUILD_DIR/hs_logging foo bar baz
