@@ -65,6 +65,9 @@ Customisation/Flags:
     the prefix has been stripped. Use when namespace conflicts arise.
 
 Changelog:
+    - 0.2   Annotate log function with "printf-like" annotations for MSVC, GCC, and
+    Clang compilers
+                - this will introduce raise warnings at higher levels
     - 0.1   initial implementation of functions
                 - add [hsl_log]
                 - add [hsl_use_default_loggers]
@@ -136,6 +139,21 @@ Changelog:
 #include <string.h>
 #define HSL_MEMCPY(DEST, SRC, SIZE) memcmp(DEST, SRC, SIZE)
 #endif  /* HSL_MEMCPY */
+
+#if defined(_MSC_VER)
+    #define HSL__PRINTF_LIKE(N, M)
+    #if _MSC_VER > 1400
+        #define HSL__PRINTF_FMT(FMT) _Printf_format_string_ FMT
+    #else
+        #define HSL__PRINTF_FMT(FMT) __format_string FMT
+    #endif /* FORMAT_STRING */
+#elif defined(__clang__) || defined(__GNUC__)
+    #define HSL__PRINTF_LIKE(N, M) __attribute__ ((format (printf, N, M)))
+    #define HSL__PRINTF_FMT(FMT) FMT
+#else
+    #define HSL__PRINTF_LIKE(N, M)
+    #define HSL__PRINTF_FMT(FMT) FMT
+#endif
 
 
 /* @doc enum representing the level at which a message should be logged
@@ -259,7 +277,11 @@ HSLOG_DEF int hsl_log_handler_set_level(hsl_LogHandlerHandle handler, hsl_LogLev
 @param line the line on which the log event was dispatched from (__LINE__)
 @param fmt a format string to print
 */
-HSLOG_DEF void hsl_log(hsl_LogLevel level, char *file, int line, char *fmt, ...);
+HSLOG_DEF void hsl_log(
+    hsl_LogLevel level,
+    char *file, int line,
+    char * HSL__PRINTF_FMT(fmt),
+    ...) HSL__PRINTF_LIKE(4, 5);
 
 
 /* names where the `hsl` prefix is stripped - undef this if you don't want this */
@@ -517,14 +539,6 @@ HSLOG_DEF void hsl_log(hsl_LogLevel level, char *file, int line, char *fmt, ...)
 # Todos/Design Consideratoins
 
 Some notes on API design, thoughts for improvements, and tasks to do at later date
-
-## TODO: add printf-like annotations to relevant functions
-- there is some compiler hacking you can do to indicate to the compiler that a
-given function should be treated like printf
-- gives the benefits of providing compiler errors (on supporting compilers) when
-there is a mismatch between the format string and its parameters
-    - e.g. `hsl_log("foo: %s");` should yield a compiler error as `%s` is never
-    supplied as an arg
 
 ## TODO: Remove dynamic capacity array features of handler list
 - there is no reason to make the log handler list dynamic
