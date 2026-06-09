@@ -1,13 +1,17 @@
-/* @doc hs_logging.h - a library providing a flexible interface for logging.
+/* @doc hs_logging.h - a library which provides a flexible interface for logging.
 
-@note this library provides some default logging handlers, but expects you to provide
-the actual handler code.
+@note The library provides the primatives for logging, but leaves the actualy design
+of "handlers" to the user, i.e. if you want to log to the console, then you must
+write a "console handler" function.
 
-@note this logging library sets the default, global, logging level to `hsl_LogLevel_Info`
+@note This library sets the default, hsl_DEFAULT_LOG_LEVEL value to `hsl_Log_Info`
+
+@note the only true requirement on the C standard libarry in this implementation
+is now `stdarg.h`
 
 Usage:
-Include this library in all files where required, the in **one** and only one **source**
-file, do the following:
+Include this library in any, and all files you require its functionality. Then in
+**one and only one source file**, do the following:
 
     #define HS_LOGGING_IMPLEMENTATION
     #include "hs_logging.h"
@@ -19,52 +23,15 @@ Contributors:
 
 Licence: See end of file for details
 
-Notes:
-    - The set of log handlers is assumed to be a dynamic array with initial capacity
-    for 16 log handlers.
-    - Upon exceeding the number of defined handlers, the memory will be reallocated
-    and capacity increased (by a factor of 2).
-    - If users require access to "custom data" for their log handler implementation,
-    this currently requires users to access \[their own\] globally defined data
-    (such as file handles)
-    - All log handlers are triggered on all log events, i.e. if you have a handler
-    configured to log to stdout, and another which logs to some file, a single call
-    to [hsl_log] will trigger a message to be send to both stdout and the file (in
-    whatever order the handlers were registered in)
-
 Customisation/Flags:
-    - HS_LOGGING_IMPLEMENTATION - define this to include the API definition.
-    - HSL_ASSERT - define a custom assertion function, if not defined the library
-    provides a definition, which will log a message, and call the standard library
-    assert.
-    - HS_LOGGING_STATIC - define this to force all functions to have static storage
-    class, if not defined functions defined as `extern`.
-    - HS_LOGGING_DO_NOT_ABORT_WHEN_GLOBAL_LOG_LEVEL_SET_TO_DEFAULT - define this
-    if you do not wish the library to assert & potentially crash when the user attempts
-    to set the default (global) log level to `hsl_LogLevel_Default`. If not defined,
-    and either your definition of `HSL_ASSERT`, or the default library definition,
-    are configured to crash the program, they will if the code path is triggered.
-    - HS_LOGGING_NO_STDIO - define this to remove all reliance on `stdio.h` from
-    the API.
-        - NOTE(HS): removes call to `printf` in the default library implementation
-        of `HSL_ASSERT`.
-    - HS_LOGGING_NO_DEFAULT_LOGGERS - define this to not build with the default
-    loggers.
-        - NOTE(HS): implicitly the default loggers rely on `stdio.h`.
-        - NOTE(HS): if `HS_LOGGING_NO_STDIO` is defined then this is implicit.
-    - allocator overrides:
-        - NOTE(HS): either define none, or define all, failure to do the later will
-        raise a compiler error
-        - HSL_MALLOC - override memory allcotion behavior, defaults to `malloc`
-        - HSL_REALLOC - override memory reallocation behaviour, defaults to `realloc`
-        - HSL_FREE - override memory freeing behaviour, defaults to `free`
-    - HSL_MEMCPY: to add handlers into the set of handlers, this requires use of
-    `memcpy`, to allow maximal divorce from the C standard library users are given
-    interface to override this if requried.
-    - HS_LOGGING_NO_SHORT_NAMES - define this to remove all `#define` aliases, where
-    the prefix has been stripped. Use when namespace conflicts arise.
+    - HS_LOGGING_IMPLEMENTATION - define this to generate the API implementation
+    - HS_LOGGING_STATIC - define this to annotate all functions with "static" storage
+    specifier
+    - HS_LOGGING_NO_SHORT_NAMES - define this to force exclusion of the short API
+    names (use in cases where there are namespace collisions)
 
 Changelog:
+    - 0.3   Greatly simplify interface, and update API
     - 0.2   Annotate log function with "printf-like" annotations for MSVC, GCC, and
     Clang compilers
                 - this will introduce raise warnings at higher levels
@@ -80,66 +47,20 @@ Changelog:
 */
 #ifndef HS_LOGGING_H_
 #define HS_LOGGING_H_
-
 #include <stdarg.h>
 
-#ifndef HSLOG_DEF
+#ifndef HSL_DEF
     #ifdef HS_LOGGING_STATIC
-        #define HSLOG_DEF static
+        #define HSL_DEF static
     #else
-        #define HSLOG_DEF extern
+        #define HSL_DEF extern
     #endif
-#endif  /* HSLOG_DEF */
+#endif
 
-#ifndef HSL_ASSERT
-    #include <assert.h>
-
-    #ifndef HS_LOGGING_NO_STDIO
-    #include <stdio.h>
-    #endif  /* HS_LOGGING_NO_STDIO */
-
-    #define HSL__DO_STRINGIFY(S) #S
-    #define HSL__STRINGIFY(S) HSL__DO_STRINGIFY(S)
-
-    #ifndef HS_LOGGING_NO_STDIO
-    #define HSL_ASSERT(COND, MSG)                                           \
-        do {                                                                \
-            if (!(COND)) {                                                  \
-                printf(                                                     \
-                    "%s:%i - invalid condition encountered: %s - %s\n",     \
-                    __FILE__, __LINE__,                                     \
-                    HSL__STRINGIFY(COND), MSG                               \
-                );                                                          \
-            }                                                               \
-            assert(0 && (MSG));                                             \
-        } while (0)
-    #else
-    #define HSL_ASSERT(COND, MSG)                                           \
-        do {                                                                \
-            assert((COND) && (MSG));                                        \
-        } while (0)
-    #endif  /* HS_LOGGING_NO_STDIO */
-#endif  /* HSL_ASSERT */
-
-#if !defined(HSL_MALLOC) || !defined(HSL_REALLOC) || !defined(HSL_FREE)
-#include <stdlib.h>
-#define HSL_MALLOC(SIZE) malloc(SIZE)
-#define HSL_REALLOC(PTR, SIZE) realloc(PTR, SIZE)
-#define HSL_FREE(PTR) free(PTR)
-
-#elif \
-    defined(HSL_MALLOC) && (!defined(HSL_REALLOC) || !defined(HSL_FREE)) \
-    defined(HSL_REALLOC) && (!defined(HSL_MALLOC) || !defined(HSL_FREE)) \
-    defined(HSL_FREE) && (!defined(HSL_MALLOC) || !defined(HSL_REALLOC))
-#error "you cannot provide partial override of default library allcoator functions"
-#endif  /* !defined(HSL_MALLOC) || !defined(HSL_REALLOC) || !defined(HSL_FREE) */
-
-
-#ifndef HSL_MEMCPY
-#include <string.h>
-#define HSL_MEMCPY(DEST, SRC, SIZE) memcmp(DEST, SRC, SIZE)
-#endif  /* HSL_MEMCPY */
-
+/* NOTE(HS): this is some "markup" to add printf annotations to logging functions,
+which enables warnings to be thrown by the compiler (as it would for incorrect printf
+usage) 
+*/
 #if defined(_MSC_VER)
     #define HSL__PRINTF_LIKE(N, M)
     #if _MSC_VER > 1400
@@ -155,426 +76,276 @@ Changelog:
     #define HSL__PRINTF_FMT(FMT) FMT
 #endif
 
+/* @doc The levels which messages can be logged at
 
-/* @doc enum representing the level at which a message should be logged
-
-@note the [hsl_LogLevel_Default] enum should only be used in construction of new
-handlers to make them log at whatever the global default level is.
+@note `hsl_Log_Default` should only be used to construct new handlers to make them
+log at the globally defined minimum level.
 */
-typedef enum
+typedef enum hsl_Log_Level
 {
-    /* @doc use this to indicate the global default level should be used by this
-    logger to log at
+    /* @doc indicates that level is whatever the default level the library as a
+    whole logs at */
+    hsl_Log_Default = -1,
 
-    @note if you attempt to set the global log level to this it will raise an assertion
-    unless you define the library assertion macro away, if the program does not crash
-    after asserting, then the library **will not update** the global level
-    */
-    hsl_LogLevel_Default = -1,
+    /* @doc log at "TRACE" priority */
+    hsl_Log_Trace   = 10,
 
-    /* @doc indicate the message should be logged at "TRACE" priority */
-    hsl_LogLevel_Trace   = 10,
+    /* @doc log at "DEBUG" priority */
+    hsl_Log_Debug   = 20,
 
-    /* @doc indicate the message should be logged at "DEBUG" priority */
-    hsl_LogLevel_Debug   = 20,
+    /* @doc log at "INFO" priority */
+    hsl_Log_Info    = 30,
 
-    /* @doc indicate the message should be logged at "INFO" priority */
-    hsl_LogLevel_Info    = 30,
+    /* @doc log at "WARN" priority */
+    hsl_Log_Warn    = 40,
 
-    /* @doc indicate the message should be logged at "WARN" priority */
-    hsl_LogLevel_Warn    = 40,
+    /* @doc log at "ERROR" priority */
+    hsl_Log_Error   = 50,
 
-    /* @doc indicate the message should be logged at "ERROR" priority */
-    hsl_LogLevel_Error   = 50,
+    /* @doc log at "FATAL" priority */
+    hsl_Log_Fatal   = 60
+} hsl_Log_Level;
 
-    /* @doc indicate the message should be logged at "FATAL" priority
+/* @doc variable that stores the default logging level this lirbary logs at */
+extern hsl_Log_Level hsl_DEFAULT_LOG_LEVEL;
 
-    @note should be used to indicate when an irrecoverable error was encountered
-    */
-    hsl_LogLevel_Fatal   = 60
-} hsl_LogLevel;
+/* @doc A strcture representing a handler for logging */
+typedef struct hsl_Log_Handler hsl_Log_Handler;
 
-/* @doc a pointer to a function which will handle the actual logging of you message.
-For example, a handler which prints a message in the following format to `stdout`
+/* @doc function pointer for a logging handler function
 
-```
-[$LEVEL] $FILE:$LINE_NO - $FMT
-```
+@note this is what users must define an implementation of
+@note this should never be called directly
+
+@param ctx userdata, which is supplied from the handler - can be used to represent
+arbitrary data the user requires to use in the handler function
+@param level the level at which the message is to be logged at
+@param file path to the file from where the log function was called
+@param line the line number from where the log function was called
+@param fmt the "printf-like" format specifier
+@param args a variadic argument list which will be used in formatting
 */
-typedef void (hsl_LogHandlerFnPtr)(
-    hsl_LogLevel level,
-    char *file, int line,
-    char *fmt, va_list args
-);
+typedef void (hsl_Log_Handler_FnPtr)(
+    void *ctx, hsl_Log_Level level,
+    char *file, int line, char *fmt, va_list args);
 
-/* @doc A "handle" to a log handler implementation
-
-@note primarily used to wrap an integer, and provide some extra type safety for
-the API
-
-@note if `id` is set to `-1`, this means the handle was invalid
+/*
+@member ctx user defined paramter, which will be passed to the log handler. Use this
+to store data required for the function of the logger.
+@member min_level the minimum level below which the handler will not trigger
+@member handler_fn a function pointer, to a user defined logging function
 */
-typedef struct { int id; } hsl_LogHandlerHandle;
+struct hsl_Log_Handler
+{
+    void *ctx;
+    hsl_Log_Level min_level;
+    hsl_Log_Handler_FnPtr *handler_fn;
+};
 
 
-/* @doc converts a [hsl_LogLevel] enumerant to a string representation */
-HSLOG_DEF char *hsl_log_level_to_string(hsl_LogLevel level);
+/* @doc convert a log level into a string representation
 
-/* @doc initialises a list of log handlers, and then populates it with the default
-library implementations
+@note strings returned from here are static litereals, defined in the implementation
 
-@note the default handler implementations include:
-- a console logger, which prints to stdout
+@param
 */
-HSLOG_DEF int hsl_use_default_loggers(void);
+HSL_DEF char *hsl_log_level_to_string(hsl_Log_Level level);
 
+/* @doc create a new log handler
 
-/* @doc set the default global level to log messages at
-
-@note if you attempt to set the global default to be [hsl_LogLevel_Default], **and**
-do not define `HS_LOGGING_DO_NOT_ABORT_WHEN_GLOBAL_LOG_LEVEL_SET_TO_DEFAULT`, then
-this will run an assertion. If the assertion does not trigger program exit, the
-default global level is left unchanged.
-
-@param level the level at which all handlers log at default
+@param o_handler the handler which will be written to
+@param min_level the minimum level at which the handler will log messages at
+@param handler_fn the function this handler should use to log messages with
+@param ctx (optional) a pointer to any arbitrary user defined data, which the handler
+function requires access to
 */
-HSLOG_DEF void hsl_set_default_log_level(hsl_LogLevel level);
+HSL_DEF int hsl_log_handler_create(
+    hsl_Log_Handler *o_handler, hsl_Log_Level min_level,
+    hsl_Log_Handler_FnPtr handler_fn, void *ctx);
 
+/* @doc set the library default log level
 
-/* @doc add a handler function to the list of log handlers, which logs at a specified
-level
-
-@note set `level` to [hsl_LogLevel_Default] to use the global, default log level
-
-@param handler_fn pointer to a function which actually does the logging
-@param level the minimum level at which messages passed to the handler will log at
-@param o_handler a pointer to a handle which will be set, so the user can update
-the log handler later
-
-@returns `1` when a handler is successfully inserted into the list of handlers,
-`0` if there was some error
+@param new_default the new default level for messages that the library will log at
 */
-HSLOG_DEF int hsl_log_handler_add(
-    hsl_LogHandlerFnPtr *handler_fn,
-    hsl_LogLevel level,
-    hsl_LogHandlerHandle *o_handler
-);
+HSL_DEF void hsl_log_level_set_default(hsl_Log_Level new_default);
 
-/* @doc sets the level of a configured handler to whatever was provided
+/* @doc get the library default log level */
+HSL_DEF hsl_Log_Level hsl_log_level_get_default(void);
 
-@param handler the handle to a logger, which is to have its log level updated
-@param level the new minimum level at which handler messages will be logged at
+/* @doc log a message, using a specified handler
 
-@returns 1 if the handler was found, and updated successfully, 0 if the logger was
-not found
+@param handler the handler to be used to log this message
+@param level the level at which to log this message
+@param file path to the file from where this function was called (use __FILE__)
+@param line the line from which this function was called (use __LINE__)
+@param fmt the "printf-like" format string which contains the message to print
 */
-HSLOG_DEF int hsl_log_handler_set_level(hsl_LogHandlerHandle handler, hsl_LogLevel level);
-
-/* @doc log a message, which will be logged by all loggers registerd in the system
-
-@param level the level at which the message should be logged at
-@param file the file the log event was dispatched from (__FILE__)
-@param line the line on which the log event was dispatched from (__LINE__)
-@param fmt a format string to print
-*/
-HSLOG_DEF void hsl_log(
-    hsl_LogLevel level,
-    char *file, int line,
-    char * HSL__PRINTF_FMT(fmt),
-    ...) HSL__PRINTF_LIKE(4, 5);
+HSL_DEF void hsl_log(
+    hsl_Log_Handler *handler, hsl_Log_Level level,
+    char *file, int line, char *HSL__PRINTF_FMT(fmt), ...) HSL__PRINTF_LIKE(5, 6);
 
 
-/* names where the `hsl` prefix is stripped - undef this if you don't want this */
 #ifndef HS_LOGGING_NO_SHORT_NAMES
-    #define LogLevel            hsl_LogLevel
-    #define LogLevel_Default    hsl_LogLevel_Default
-    #define LogLevel_Trace      hsl_LogLevel_Trace
-    #define LogLevel_Debug      hsl_LogLevel_Debug
-    #define LogLevel_Info       hsl_LogLevel_Info
-    #define LogLevel_Warn       hsl_LogLevel_Warn
-    #define LogLevel_Error      hsl_LogLevel_Error
-    #define LogLevel_Fatal      hsl_LogLevel_Fatal
+    #define Log_Level hsl_Log_Level
+        #define Log_Default hsl_Log_Default
+        #define Log_Trace   hsl_Log_Trace
+        #define Log_Debug   hsl_Log_Debug
+        #define Log_Info    hsl_Log_Info
+        #define Log_Warn    hsl_Log_Warn
+        #define Log_Error   hsl_Log_Error
+        #define Log_Fatal   hsl_Log_Fatal
+    
+    #define log_level_to_string hsl_log_level_to_string
 
-    #define LogHandlerFnPtr     hsl_LogHandlerFnPtr
-    #define LogHandlerHandle    hsl_LogHandlerHandle
+    #define log_level_set_default hsl_log_level_set_default
+    #define log_level_get_default hsl_log_level_get_default
 
-    #define log_level_to_string     hsl_log_level_to_string
-    #define use_default_loggers     hsl_use_default_loggers
-    #define set_default_log_level   hsl_set_default_log_level
-    #define log_handler_add         hsl_log_handler_add
-    #define log_handler_set_level   hsl_log_handler_set_level
-    #define log                     hsl_log
+    #define Log_Handler         hsl_Log_Handler
+    #define log_handler_create  hsl_log_handler_create
+    #define log                 hsl_log
 #endif  /* HS_LOGGING_NO_SHORT_NAMES */
 
 
+/* NOTE(HS): An example program which shows how to setup a handler, using custom
+context */
+#if HS_LOGGING_EXAMPLE == 1
+#include <stdio.h>
+#include <stdlib.h>
+
+#define HS_LOGGING_IMPLEMENTATION
+
+struct fmt_buffer {
+    char *buffer;
+    int len;
+};
+
+void example_handler(
+    void *ctx, hsl_Log_Level level, char *file, int line,
+    char *fmt, va_list args)
+{
+    struct fmt_buffer *buffer;
+    char *level_str;
+    int offset;
+    buffer = (struct fmt_buffer*) ctx;
+    level_str = hsl_log_level_to_string(level);
+    offset = sprintf(buffer->buffer, "[EXAMPLE::%s] %s:%i - ", level_str, file, line);
+    vsprintf(&buffer->buffer[offset], fmt, args);
+    printf("%s\n", buffer->buffer);
+}
+
+int main(void) {
+    hsl_Log_Handler handler;
+    struct fmt_buffer buffer;
+
+    buffer.len = 4096;
+    buffer.buffer = malloc(sizeof(*buffer.buffer) * buffer.len + 1);
+
+    hsl_log_handler_create(&handler, hsl_Log_Info, example_handler, &buffer);
+
+    hsl_log(&handler, Log_Trace, __FILE__, __LINE__, "should not log");
+    hsl_log(
+        &handler, hsl_Log_Info, __FILE__, __LINE__,
+        "test format: %s | %i", "Hello, World!", 42);
+
+    return 0;
+}
+#endif  /* HS_LOGGING_EXAMPLE */
+
+
 /*==============================================================================
-                                Library Implementation
+                            Library Implementation
 ==============================================================================*/
+
 #ifdef HS_LOGGING_IMPLEMENTATION
 
-#ifndef HS_LOGGING_NO_STDIO
-#include <stdio.h>
-#endif  /* HS_LOGGING_NO_STDIO */
+hsl_Log_Level hsl_DEFAULT_LOG_LEVEL = hsl_Log_Info;
 
-/* internal representation of a "log handler"/logger
 
-NOTE(HS): the `id` here maps to [hsl_LogHandlerHandle::id]
-*/
-typedef struct
+HSL_DEF void hsl_log_level_set_default(hsl_Log_Level new_default)
 {
-    hsl_LogHandlerFnPtr *handler_fn;
-    hsl_LogLevel level;
-    int id;
-} hsl__LogHandler;
-
-/* internal representation of the set of log handlers that are currently registered
-to the system
-*/
-typedef struct
-{
-    hsl__LogHandler *elems;
-    int count;
-    int capacity;
-} hsl__LogHandlerList;
-
-
-/* list of available log handlers */
-static hsl__LogHandlerList hsl__log_handler_list;
-
-/* the next id value for a log handler */
-static int hsl__next_log_handler_id = 1;
-
-/* the default log level */
-hsl_LogLevel hsl__default_log_level = hsl_LogLevel_Info; 
-
-/* initialise the list of log handlers */
-static int hsl__log_handlers_init(void)
-{
-    if (hsl__log_handler_list.elems)
+    if (new_default == hsl_Log_Default) return;
+    switch (new_default)
     {
-        return 1;
-    }
+        case hsl_Log_Trace:
+        case hsl_Log_Debug:
+        case hsl_Log_Info:
+        case hsl_Log_Warn:
+        case hsl_Log_Error:
+        case hsl_Log_Fatal:
+        {} break;
 
-    hsl__log_handler_list.capacity = 16;
-    hsl__log_handler_list.count = 0;
-    hsl__log_handler_list.elems = HSL_MALLOC(
-        sizeof(*hsl__log_handler_list.elems) * hsl__log_handler_list.capacity
-    );
-
-    if (!hsl__log_handler_list.elems)
-    {
-        return 0;
-    }
-
-    return 1;
-}
-
-/* do the actual logging, which involves:
-    1. looping through the list of available handlers
-    2. if the supplied level is >= level of the handler the call the handler function
-*/
-static void hsl__do_log(hsl_LogLevel level, char *file, int line, char *fmt, va_list args)
-{
-    int i;
-    hsl__LogHandler *handler;
-    for (i = 0; i < hsl__log_handler_list.count; ++i)
-    {
-        handler = &hsl__log_handler_list.elems[i];
-        if (level >= handler->level)
-        {
-            handler->handler_fn(level, file, line, fmt, args);
+        /* TODO(HS): "unreachable" macro */
+        default: {
+            * (int*) 0 = 0;
         }
     }
+    hsl_DEFAULT_LOG_LEVEL = new_default;
 }
 
-#if defined(HS_LOGGING_NO_DEFAULT_LOGGERS) || defined(HS_LOGGING_NO_STDIO)
-#else
-/* a default implementation of a log handler, which simply prints the message to
-`stdout`
-*/
-static void hsl__default_log_handler_console_fn(
-    hsl_LogLevel level,
-    char *file, int line,
-    char *fmt, va_list args
-)
+HSL_DEF hsl_Log_Level hsl_log_level_get_default(void)
 {
-    char *level_str;
-    level_str = hsl_log_level_to_string(level);
-    fprintf(stdout, "[%s] %s:%i - ", level_str, file, line);
-    vfprintf(stdout, fmt, args);
-    fprintf(stdout, "\n");
+    return hsl_DEFAULT_LOG_LEVEL;
 }
-#endif  /* defined(HS_LOGGING_NO_DEFAULT_LOGGERS) || defined(HS_LOGGING_NO_STDIO) */
 
 
-HSLOG_DEF char *hsl_log_level_to_string(hsl_LogLevel level)
+HSL_DEF char *hsl_log_level_to_string(hsl_Log_Level level)
 {
     char *str;
     switch (level)
     {
-        case hsl_LogLevel_Default: { str = hsl_log_level_to_string(hsl__default_log_level); } break;
+        case hsl_Log_Default: {
+            hsl_log_level_to_string(hsl_log_level_get_default());
+        } break;
 
-        case hsl_LogLevel_Trace: { str = "TRACE"; } break;
-        case hsl_LogLevel_Debug: { str = "DEBUG"; } break;
-        case hsl_LogLevel_Info:  { str = "INFO";  } break;
-        case hsl_LogLevel_Warn:  { str = "WARN";  } break;
-        case hsl_LogLevel_Error: { str = "ERROR"; } break;
-        case hsl_LogLevel_Fatal: { str = "FATAL"; } break;
+        case hsl_Log_Trace: { str = "TRACE"; } break;
+        case hsl_Log_Debug: { str = "DEBUG"; } break;
+        case hsl_Log_Info:  { str = "INFO";  } break;
+        case hsl_Log_Warn:  { str = "WARN";  } break;
+        case hsl_Log_Error: { str = "ERROR"; } break;
+        case hsl_Log_Fatal: { str = "FATAL"; } break;
 
-        default: { str = NULL; * (int*) 0 = 0; /* TOOD: "unreachable" */ }
+        /* TODO(HS): unreachable macro */
+        default: {
+            * (int*) 0 = 0;
+        }
     }
     return str;
 }
 
-HSLOG_DEF int hsl_use_default_loggers(void)
+HSL_DEF int hsl_log_handler_create(
+    hsl_Log_Handler *o_handler, hsl_Log_Level min_level,
+    hsl_Log_Handler_FnPtr handler_fn, void *ctx)
 {
-    hsl_LogHandlerHandle console_handler;
+    int success;
+    success = 0;
 
-    if (!hsl__log_handlers_init()) { return 0; }
+    o_handler->ctx = ctx;
+    o_handler->handler_fn = handler_fn;
 
-#if defined(HS_LOGGING_NO_DEFAULT_LOGGERS) || defined(HS_LOGGING_NO_STDIO)
-    (void) console_handler;
-#else
-    if (!hsl_log_handler_add(hsl__default_log_handler_console_fn, -1, &console_handler))
+    if (min_level == hsl_Log_Default)
     {
-        return 0;
+        min_level = hsl_log_level_get_default();
     }
-#endif  /* defined(HS_LOGGING_NO_DEFAULT_LOGGERS) || defined(HS_LOGGING_NO_STDIO) */
+    o_handler->min_level = min_level;
 
-    return 1;
+    success = 1;
+    return success;
 }
 
-HSLOG_DEF int hsl_log_handler_add(
-    hsl_LogHandlerFnPtr handler_fn,
-    int level,
-    hsl_LogHandlerHandle *o_handler_id
-)
+HSL_DEF void hsl_log(
+    hsl_Log_Handler *handler, hsl_Log_Level level,
+    char *file, int line, char *fmt, ...)
 {
-    int result;
-    int next_handler_id;
-    int next_handler_offset;
-    hsl__LogHandler handler;
-    void *next_handler_addr;
-
-    if (!hsl__log_handler_list.elems)
+    if (level >= handler->min_level)
     {
-        int init_success;
-        init_success = hsl__log_handlers_init();
-        if (!init_success) { return 0; }
+        va_list args;
+        va_start(args, fmt);
+        handler->handler_fn(handler->ctx, level, file, line, fmt, args);
+        va_end(args);
     }
-
-    result = 0;
-
-    /* dynamic array impl */
-    if (hsl__log_handler_list.count + 1 >= hsl__log_handler_list.capacity)
-    {
-        int new_capacity;
-        void *new_elems;
-        new_capacity = hsl__log_handler_list.capacity * 2;
-        new_elems = HSL_REALLOC(hsl__log_handler_list.elems, new_capacity);
-        if (!new_elems) { return 0; }
-        hsl__log_handler_list.elems = (hsl__LogHandler*) new_elems;
-        hsl__log_handler_list.capacity = new_capacity;
-    }
-
-    next_handler_offset = hsl__log_handler_list.count;
-    next_handler_id = hsl__next_log_handler_id;
-
-    handler.handler_fn = handler_fn;
-    handler.level = level;
-    handler.id = next_handler_id;
-
-    next_handler_addr = &(hsl__log_handler_list.elems[next_handler_offset]);
-    /* TODO: check if memcpy succeeds */
-    memcpy(next_handler_addr, (void*) &handler, sizeof(handler));
-
-    hsl__log_handler_list.count += 1;
-
-    hsl__next_log_handler_id += 1;
-    o_handler_id->id = next_handler_id;
-
-    result = (next_handler_id > 0) ? 1 : 0;
-    return result;
-}
-
-HSLOG_DEF void hsl_set_default_log_level(hsl_LogLevel level)
-{
-    if (level == hsl_LogLevel_Default)
-    {
-#ifndef HS_LOGGING_DO_NOT_ABORT_WHEN_GLOBAL_LOG_LEVEL_SET_TO_DEFAULT
-        HSL_ASSERT(level != hsl_LogLevel_Default, "cannot");
-#endif
-        return;
-    }
-    hsl__default_log_level = level;
-}
-
-HSLOG_DEF int hsl_log_handler_set_level(hsl_LogHandlerHandle handler_id, hsl_LogLevel level)
-{
-    int i;
-    for (i = 0; i < hsl__log_handler_list.count; ++i)
-    {
-        hsl__LogHandler *handler;
-        handler = &(hsl__log_handler_list.elems[i]);
-        if (handler->id == handler_id.id)
-        {
-            handler->level = level;
-            return 1;
-        }
-    }
-    return 0;
-}
-
-HSLOG_DEF void hsl_log(hsl_LogLevel level, char *file, int line, char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    hsl__do_log(level, file, line, fmt, args);
-    va_end(args);
 }
 
 #endif  /* HS_LOGGING_IMPLEMENTATION */
-
-/*
-# Todos/Design Consideratoins
-
-Some notes on API design, thoughts for improvements, and tasks to do at later date
-
-## TODO: Remove dynamic capacity array features of handler list
-- there is no reason to make the log handler list dynamic
-- users of the API will know ahead of time how many log handlers are required
-- instead API should return an error when attempting to insert a new log handler
-when you exceed the max capacity
-- requires addition of new "capacity" macro (HSL_HANDLER_CAPACITY)
-    - if not defined set to 2 as default
-    - this is I think the minimum for a user to get started as it includes space
-    for the default (console) logger, and for (one of) their own handler(s)
-
-## Design: Add ability to log with specified handler only
-- I can forsee it being useful to allow for logging where only specified handlers
-are used to log particular messages.
-- would allow for users to create several handlers, e.g. create one per "system"
-in your application (e.g. gameplay vs engine systems for a videogame)
-- may require tagging of handlers as "global" i.e. ones where all log events are
-sent to these regardless of whether the handle matches the provided one
-
-## Design: Provide `ctx` var during handler instantiation
-- it may be worth providing some "userdata" to the log handlers
-- this could be used to store a file handle for logs to be written to
-- improves some integration effort as users aren't then forced into using global
-data as they now are
-- userdata should be an optional parameter (i.e. nullable)
-- userdata will be a `void*` and all memory associated with said pointer must be
-managed by the API user
-    - it is then up to the user to manipulate the void pointer in the handler function
-    as required
-
-## Maybe: Parallelise dispatch of events to handlers
-- currently all log events are dispatched, sequentially, to each handler registered
-with the library
-- if users have many log handlers, then you may want to run the "global" handlers
-in a multithreaded env
-*/
 
 #endif  /* HS_LOGGING_H_ */
 /*
